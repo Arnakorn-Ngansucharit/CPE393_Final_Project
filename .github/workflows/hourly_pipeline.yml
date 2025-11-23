@@ -1,8 +1,9 @@
-name: Hourly pipeline
+name: ML pipeline
 
 on:
   workflow_dispatch: {}
   schedule:
+    # run at minute 0 every hour
     - cron: '0 * * * *'
 
 jobs:
@@ -10,9 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
+    permissions:
+      contents: write 
+      
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} 
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -33,11 +39,6 @@ jobs:
         working-directory: project_root
         run: |
           python clean_hourly_timeseries.py
-
-      - name: Build daily for drift
-        working-directory: project_root
-        run: |
-          python build_daily_for_drift.py
 
       - name: Build training dataset
         working-directory: project_root
@@ -76,3 +77,14 @@ jobs:
         working-directory: project_root
         run: |
           python train.py
+
+      - name: Persist generated artifacts (Commit and Push) 💾
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          file_pattern: |
+            project_root/data/raw/waqi_timeseries/**
+            project_root/data/clean/hourly/**
+            project_root/data/processed/aqi_lagged_SEA.csv
+            project_root/data/trained_data/**
+          commit_message: '🤖 Data Pipeline: Update hourly data'
+          branch: ${{ github.ref_name }}

@@ -4,6 +4,9 @@ numpy>=1.24.0
 scikit-learn>=1.1.0
 requests>=2.28.0
 
-# Optional / environment-specific (uncomment if needed)
+# Data drift / monitoring
+evidently>=0.3.0
+
+# Optional / environment-specific
 # dotenv is used by fetch_waqi_station_details_sea.py to load WAQI_TOKEN
 python-dotenv>=0.21.0
