@@ -34,6 +34,10 @@ def load_dataset(path: Path) -> pd.DataFrame:
 
 
 def preprocess(df: pd.DataFrame):
+    # ลบแถวซ้ำทั้งหมด
+    df = df.drop_duplicates()
+    print(f"หลังลบแถวซ้ำแล้ว shape = {df.shape}")
+    
     # ลบแถวที่ target หาย
     if TARGET_COL not in df.columns:
         raise ValueError(f"ไม่พบคอลัมน์ target '{TARGET_COL}' ใน dataset")
@@ -89,7 +93,7 @@ def train_and_log_model(model_name: str, model, X_train, X_test, y_train, y_test
 
         # metrics
         mae = mean_absolute_error(y_test, y_pred)
-        rmse = mean_squared_error(y_test, y_pred) ** 0.5   # ← รองรับ sklearn ทุกเวอร์ชัน
+        rmse = mean_squared_error(y_test, y_pred) ** 0.5
         r2 = r2_score(y_test, y_pred)
 
         mlflow.log_metric("MAE", mae)
@@ -113,7 +117,14 @@ def train_and_log_model(model_name: str, model, X_train, X_test, y_train, y_test
 
 
 def main():
-    # ---------- เตรียม MLflow ----------
+    # ========== ตั้งค่า MLflow ให้ใช้ project_root/mlruns ==========
+    tracking_dir = (BASE_DIR / "mlruns").resolve()               # absolute Path
+    tracking_uri = "file:///" + str(tracking_dir).replace("\\", "/")  # บังคับให้เป็น file:/// และบังคับเป็น slash
+
+    mlflow.set_tracking_uri(tracking_uri)
+    print("MLflow tracking URI =", tracking_uri)
+
+    # ---------- เตรียม MLflow experiment ----------
     mlflow.set_experiment(EXPERIMENT_NAME)
     print(f"ใช้ MLflow experiment: {EXPERIMENT_NAME}")
 
@@ -122,7 +133,7 @@ def main():
     X, y = preprocess(df)
 
     if len(X) < 50:
-        print("⚠ จำนวน sample น้อย (< 50) ระวังโมเดล overfit แต่จะเทรนให้สำหรับลอง pipeline ก่อนนะ")
+        print("⚠ จำนวน sample น้อย (< 50) ระวังโมเดล overfit เทรนให้สำหรับลอง pipeline ก่อน")
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
@@ -159,23 +170,7 @@ def main():
         )
 
     best = results_sorted[0]
-    print("\n⭐ Best model (RMSE ต่ำสุด):")
-    print(
-        f"{best['model_name']} (run_id={best['run_id']}) "
-        f"RMSE={best['rmse']:.4f}, MAE={best['mae']:.4f}, R2={best['r2']:.4f}"
-    )
-    print("เปิด MLflow UI ด้วยคำสั่ง: mlflow ui")
-    
-    # ---------- สรุปผล และหา best model ----------
-    print("\n===== Summary (sorted by RMSE) =====")
-    results_sorted = sorted(results, key=lambda r: r["rmse"])
-    for r in results_sorted:
-        print(
-            f"{r['model_name']:25s} | RMSE={r['rmse']:.4f} | MAE={r['mae']:.4f} | R2={r['r2']:.4f} | run_id={r['run_id']}"
-        )
-
-    best = results_sorted[0]
-    print("\n⭐ Best model (RMSE ต่ำสุด):")
+    print("\nBest model (RMSE ต่ำสุด):")
     print(
         f"{best['model_name']} (run_id={best['run_id']}) "
         f"RMSE={best['rmse']:.4f}, MAE={best['mae']:.4f}, R2={best['r2']:.4f}"
@@ -185,20 +180,14 @@ def main():
     model_name = "aqi_best_model"
     model_uri = f"runs:/{best['run_id']}/model"
 
-    print(f"\n📦 Register best model เข้า Model Registry ชื่อ '{model_name}' ...")
+    print(f"\nRegister best model เข้า Model Registry ชื่อ '{model_name}' ...")
     registered = mlflow.register_model(model_uri=model_uri, name=model_name)
     version = registered.version
     print(f"   -> registered version = {version}")
 
-    # **ไม่เรียก transition_model_version_stage แล้ว**
-    # เพราะ mlflow เวอร์ชันใหม่มีปัญหากับ yaml + Metric object
-    # เราจะใช้ model URI แบบระบุ version แทน
-
-    print("\n✅ เสร็จแล้ว: best model ถูก register เรียบร้อย")
+    print("\nเสร็จแล้ว: best model ถูก register เรียบร้อย")
     print(f"   Model URI สำหรับใช้ deploy: models:/{model_name}/{version}")
     print("   ถ้าอยากดูใน UI ให้รัน: mlflow ui")
-
-
 
 if __name__ == "__main__":
     main()
