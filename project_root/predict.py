@@ -1,5 +1,7 @@
 # predict_all_stations.py
 
+import sys
+import subprocess
 from pathlib import Path
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -76,7 +78,13 @@ def make_feature_matrix(df: pd.DataFrame):
 
 def main():
     # 0) ดึง URI ของ model version ล่าสุด
-    model_uri = get_latest_model_uri(MODEL_NAME)
+    try:
+        model_uri = get_latest_model_uri(MODEL_NAME)
+    except ValueError:
+        print(f"⚠ ไม่พบโมเดล '{MODEL_NAME}' -> กำลังรัน train.py เพื่อสร้างโมเดลแรก...")
+        subprocess.run([sys.executable, str(BASE_DIR / "train.py")], check=True)
+        # ลองดึงใหม่
+        model_uri = get_latest_model_uri(MODEL_NAME)
 
     # 1) โหลดข้อมูลล่าสุดของแต่ละสถานี
     df_latest = load_latest_per_station(DATA_PATH)
