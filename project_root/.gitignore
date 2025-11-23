@@ -1,4 +1,5 @@
 mlruns/
+project_root/mlruns/
 __pycache__/
 *.pyc
 .DS_Store
