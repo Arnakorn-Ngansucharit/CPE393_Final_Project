@@ -6,8 +6,9 @@ import pandas as pd
 from datetime import datetime
 
 try:
-    from evidently import Report, Dataset, DataDefinition
-    from evidently.presets import DataDriftPreset
+    from evidently.report import Report
+    from evidently.metric_preset import DataDriftPreset
+    from evidently import ColumnMapping
 except ImportError:
     print("⚠️  Evidently AI ยังไม่ได้ติดตั้ง")
     print("   กรุณาติดตั้งด้วย: pip install evidently")
@@ -44,20 +45,25 @@ def load_reference_data() -> pd.DataFrame:
 
 def load_current_data() -> pd.DataFrame:
     """
-    โหลด current/production data
-    สำหรับตอนนี้ใช้ reference data แบ่งครึ่ง (simulate production data)
-    หรือโหลดจาก daily data ใหม่
+    โหลด current/production data จากไฟล์ daily ล่าสุด
     """
-    # วิธีที่ 1: ใช้ reference data แบ่งครึ่ง (สำหรับ demo)
-    df_ref = load_reference_data()
+    daily_dir = BASE_DIR / "data" / "clean" / "daily"
+    if not daily_dir.exists():
+        raise FileNotFoundError(f"ไม่พบโฟลเดอร์ {daily_dir}")
+
+    files = sorted(daily_dir.glob("waqi_daily_SEA_*.csv"), reverse=True)
+    if not files:
+        raise FileNotFoundError(f"ไม่พบไฟล์ daily data ใน {daily_dir}")
+
+    latest_file = files[0]
+    print(f"[DRIFT] โหลดไฟล์ daily ล่าสุด: {latest_file.name}")
+    df_current = pd.read_csv(latest_file)
     
-    # แบ่งครึ่งเพื่อ simulate reference vs current
-    mid_point = len(df_ref) // 2
-    df_current = df_ref.iloc[mid_point:].copy()
-    
-    print(f"ใช้ current data (simulated): {df_current.shape}")
-    print("💡 สำหรับ production ให้แก้ไขฟังก์ชันนี้ให้โหลดข้อมูลใหม่จริง ๆ")
-    
+    # แปลง date column ถ้ามี
+    if "date" in df_current.columns:
+        df_current["date"] = pd.to_datetime(df_current["date"], errors="coerce")
+
+    print(f"โหลด current data: {df_current.shape}")
     return df_current
 
 
@@ -112,31 +118,21 @@ def generate_drift_report(df_ref: pd.DataFrame, df_current: pd.DataFrame):
     print(f"\n📊 กำลังสร้าง report...")
     print(f"   Numeric features: {len(numeric_features)}")
     
-    # สร้าง DataDefinition
-    data_definition = DataDefinition(
-        numerical_columns=numeric_features
-    )
-    
-    # แปลงเป็น Evidently Dataset
-    reference_dataset = Dataset.from_pandas(df_ref_clean, data_definition=data_definition)
-    current_dataset = Dataset.from_pandas(df_current_clean, data_definition=data_definition)
-    
+    # สร้าง ColumnMapping
+    column_mapping = ColumnMapping()
+    column_mapping.numerical_features = numeric_features
+
     # สร้าง report
-    report = Report(
-        metrics=[DataDriftPreset()]
-    )
+    report = Report(metrics=[DataDriftPreset()])
     
-    # รัน report (จะได้ Snapshot object กลับมา)
-    snapshot = report.run(
-        reference_data=reference_dataset,
-        current_data=current_dataset
-    )
+    # รัน report
+    report.run(reference_data=df_ref_clean, current_data=df_current_clean, column_mapping=column_mapping)
     
     # บันทึก report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = REPORT_DIR / f"drift_report_{timestamp}.html"
     
-    snapshot.save_html(str(report_path))
+    report.save_html(str(report_path))
     
     print(f"\n✅ บันทึก report ที่: {report_path}")
     
@@ -145,25 +141,23 @@ def generate_drift_report(df_ref: pd.DataFrame, df_current: pd.DataFrame):
     print("Report Summary")
     print("=" * 60)
     
-    # ดึง metrics จาก snapshot
+    # ดึง metrics จาก json
     try:
-        metrics_dict = snapshot.dict()
+        metrics_dict = report.as_dict()
         
         # หา data drift metrics
-        if 'metric_results' in metrics_dict:
-            for metric_result in metrics_dict['metric_results']:
-                if 'dataset_drift' in str(metric_result):
+        if 'metrics' in metrics_dict:
+            for metric_result in metrics_dict['metrics']:
+                if metric_result['metric'] == 'DatasetDriftMetric':
                     result = metric_result.get('result', {})
-                    if 'dataset_drift' in result:
-                        drift_detected = result['dataset_drift']
-                        drift_score = result.get('drift_score', 'N/A')
-                        print(f"Dataset Drift Detected: {drift_detected}")
-                        print(f"Drift Score: {drift_score}")
+                    drift_detected = result.get('dataset_drift', False)
+                    drift_share = result.get('drift_share', 0)
+                    print(f"Dataset Drift Detected: {drift_detected}")
+                    print(f"Drift Share: {drift_share:.2f}")
                     
-                    if 'number_of_drifted_features' in result:
-                        num_drifted = result['number_of_drifted_features']
-                        total_features = result.get('number_of_features', 'N/A')
-                        print(f"Drifted Features: {num_drifted} / {total_features}")
+                    num_drifted = result.get('number_of_drifted_columns', 0)
+                    total_features = result.get('number_of_columns', 0)
+                    print(f"Drifted Features: {num_drifted} / {total_features}")
     except Exception as e:
         print(f"⚠️  ไม่สามารถดึง summary ได้: {e}")
         print("   ดูรายละเอียดใน HTML report แทน")
