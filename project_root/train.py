@@ -117,13 +117,6 @@ def train_and_log_model(model_name: str, model, X_train, X_test, y_train, y_test
 
 
 def main():
-    # ========== ตั้งค่า MLflow ให้ใช้ project_root/mlruns ==========
-    tracking_dir = (BASE_DIR / "mlruns").resolve()               # absolute Path
-    tracking_uri = "file:///" + str(tracking_dir).replace("\\", "/")  # บังคับให้เป็น file:/// และบังคับเป็น slash
-
-    mlflow.set_tracking_uri(tracking_uri)
-    print("MLflow tracking URI =", tracking_uri)
-
     # ---------- เตรียม MLflow experiment ----------
     mlflow.set_experiment(EXPERIMENT_NAME)
     print(f"ใช้ MLflow experiment: {EXPERIMENT_NAME}")
