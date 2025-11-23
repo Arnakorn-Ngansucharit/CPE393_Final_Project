@@ -6,6 +6,8 @@ on:
 jobs:
   fetch-global:
     runs-on: ubuntu-latest
+    env:
+      WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
