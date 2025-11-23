@@ -1,8 +1,8 @@
 name: Hourly pipeline: fetch station → clean → build → predict → conditional train
 
 on:
-  schedule:
   workflow_dispatch: {}
+  schedule:
     - cron: '0 * * * *'
 
 jobs:
