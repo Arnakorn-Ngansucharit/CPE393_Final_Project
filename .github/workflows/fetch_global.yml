@@ -36,6 +36,8 @@ jobs:
 
   commit-changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs: fetch-global
     steps:
       - name: Checkout

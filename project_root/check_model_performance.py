@@ -12,6 +12,7 @@ Usage: python project_root/check_model_performance.py [--tolerance 5] [--min-acc
 import argparse
 import sys
 from pathlib import Path
+import os
 
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -24,14 +25,17 @@ DATA_PATH = BASE_DIR / "data" / "processed" / "aqi_lagged_SEA.csv"
 MODEL_NAME = "aqi_best_model"
 
 
-def get_latest_model_uri(model_name: str) -> str:
-    client = MlflowClient()
-    versions = client.search_model_versions(f"name='{model_name}'")
-    if not versions:
-        raise ValueError(f"no model versions found for '{model_name}'")
-    versions_sorted = sorted(versions, key=lambda v: int(v.version), reverse=True)
-    latest_version = versions_sorted[0].version
-    return f"models:/{model_name}/{latest_version}"
+def get_latest_model_from_best_models() -> str:
+    best_models_dir = BASE_DIR / "best_models"
+    if not best_models_dir.exists():
+        raise ValueError("best_models directory does not exist")
+
+    model_files = list(best_models_dir.glob("*.pkl"))
+    if not model_files:
+        raise ValueError("No model files found in best_models directory")
+
+    latest_model = max(model_files, key=os.path.getmtime)
+    return str(latest_model)
 
 
 def main():
@@ -66,17 +70,18 @@ def main():
     X = X.select_dtypes(include=[np.number])
 
     try:
-        model_uri = get_latest_model_uri(MODEL_NAME)
+        model_path = get_latest_model_from_best_models()
+        print(f"Using model from: {model_path}")
     except Exception as e:
-        print(f"Could not get latest model URI: {e}")
-        # If no model, we definitely should train!
+        print(f"Could not find latest model in best_models: {e}")
         out_file.write_text("SHOULD_TRAIN=true\n")
         sys.exit(0)
 
     try:
-        model = mlflow.pyfunc.load_model(model_uri)
+        import joblib
+        model = joblib.load(model_path)
     except Exception as e:
-        print(f"Could not load model from MLflow: {e}")
+        print(f"Could not load model from best_models: {e}")
         out_file.write_text("SHOULD_TRAIN=false\n")
         sys.exit(0)
 
