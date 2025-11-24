@@ -3,8 +3,10 @@ name: ML pipeline
 on:
   workflow_dispatch: {}
   schedule:
-    # run at minute 0 every hour
     - cron: '0 * * * *'
+
+permissions:
+  contents: write   # allow commits/pushes using GITHUB_TOKEN
 
 jobs:
   setup-python:
@@ -14,19 +16,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
       - name: Upgrade pip
-        run: |
-          python -m pip install --upgrade pip
-
+        run: python -m pip install --upgrade pip
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
   data-processing:
     runs-on: ubuntu-latest
@@ -38,31 +42,33 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Fetch WAQI station details (hourly)
         working-directory: project_root
-        run: |
-          python fetch_waqi_station_details_sea.py
-
+        run: python fetch_waqi_station_details_sea.py
       - name: Clean hourly timeseries
         working-directory: project_root
-        run: |
-          python process_data.py
-
+        run: python process_data.py
       - name: Build training dataset
         working-directory: project_root
-        run: |
-          python build_training_dataset.py
-
+        run: python build_training_dataset.py
       - name: Build drift reference (from trained data)
         working-directory: project_root
-        run: |
-          python build_drift_file.py
-
+        run: python build_drift_file.py
       - name: Generate drift report
         working-directory: project_root
-        run: |
-          python generate_drift_report.py
+        run: python generate_drift_report.py
+      - name: Upload processed data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: processed-data
+          path: |
+            project_root/data/raw/waqi_timeseries
+            project_root/data/clean/hourly
+            project_root/data/processed/aqi_lagged_SEA.csv
+            project_root/data/trained_data
+            project_root/best_models
+            project_root/data/drift
+            project_root/data/drift/reports
 
   model-training:
     runs-on: ubuntu-latest
@@ -72,12 +78,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
+      - name: Download data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: processed-data
+          path: project_root/data
       - name: Check model performance (decide whether to train)
         id: check
         run: |
           python project_root/check_model_performance.py || true
-
+          # detect SHOULD_TRAIN= line
           val=$(grep "^SHOULD_TRAIN=" -m1 -n project_root/check_model_performance_output.txt || true)
           if [ -z "$val" ]; then
             val=$(python project_root/check_model_performance.py | grep "^SHOULD_TRAIN=" | tail -n1 || true)
@@ -85,17 +95,15 @@ jobs:
             val=$(tail -n1 project_root/check_model_performance_output.txt)
           fi
           if [ -z "$val" ]; then
-            echo "::set-output name=should_train::false"
+            echo "should_train=false" >> $GITHUB_OUTPUT
           else
             v=$(echo "$val" | sed -E 's/^SHOULD_TRAIN=//')
-            echo "::set-output name=should_train::$v"
+            echo "should_train=$v" >> $GITHUB_OUTPUT
           fi
-
       - name: Train (only if performance below threshold)
         if: steps.check.outputs.should_train == 'true'
         working-directory: project_root
-        run: |
-          python train.py
+        run: python train.py
 
   model-prediction:
     runs-on: ubuntu-latest
@@ -105,21 +113,43 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
+      - name: Download data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: processed-data
+          path: project_root/data
       - name: Predict
         working-directory: project_root
-        run: |
-          python predict.py
+        run: python predict.py
+      - name: Upload generated artifacts for commit
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts
+          path: |
+            project_root/data/raw/waqi_timeseries
+            project_root/data/clean/hourly
+            project_root/data/processed/aqi_lagged_SEA.csv
+            project_root/data/trained_data
+            project_root/best_models
+            project_root/data/drift
+            project_root/data/drift/reports
 
-  upload-artifact:
+  commit-changes:
     runs-on: ubuntu-latest
     needs: model-prediction
     steps:
-      - name: Checkout
+      - name: Checkout (full history)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
+          fetch-depth: 0
+      - name: Download pipeline artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-artifacts
+          path: project_root/data
+      - name: Show downloaded files (debug)
+        run: ls -la project_root/data || true
       - name: Persist generated artifacts (Commit and Push) 💾
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
@@ -129,7 +159,7 @@ jobs:
             project_root/data/processed/aqi_lagged_SEA.csv
             project_root/data/trained_data/**
             project_root/best_models/**
-            project_root/data/drift/waqi_drift_reference.csv
+            project_root/data/drift/**
             project_root/data/drift/reports/*.html
           commit_message: '🤖 Data Pipeline: Update hourly data and Generate Drift Reports'
           branch: ${{ github.ref_name }}
