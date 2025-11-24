@@ -3,38 +3,13 @@ name: ML pipeline
 on:
   workflow_dispatch: {}
   schedule:
+    # run at minute 0 every hour
     - cron: '0 * * * *'
 
-permissions:
-  contents: write   # allow commits/pushes using GITHUB_TOKEN
-
 jobs:
-  setup-python:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - name: Cache pip dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
 
   data-processing:
     runs-on: ubuntu-latest
-    needs: setup-python
     env:
       WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
     steps:
@@ -42,33 +17,50 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
       - name: Fetch WAQI station details (hourly)
         working-directory: project_root
-        run: python fetch_waqi_station_details_sea.py
+        run: |
+          python fetch_waqi_station_details_sea.py
+
       - name: Clean hourly timeseries
         working-directory: project_root
-        run: python process_data.py
+        run: |
+          python process_data.py
+
       - name: Build training dataset
         working-directory: project_root
-        run: python build_training_dataset.py
+        run: |
+          python build_training_dataset.py
+
       - name: Build drift reference (from trained data)
         working-directory: project_root
-        run: python build_drift_file.py
+        run: |
+          python build_drift_file.py
+
       - name: Generate drift report
         working-directory: project_root
-        run: python generate_drift_report.py
-      - name: Upload processed data artifact
-        uses: actions/upload-artifact@v4
+        run: |
+          python generate_drift_report.py
+
+      - name: Upload data artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: processed-data
-          path: |
-            project_root/data/raw/waqi_timeseries
-            project_root/data/clean/hourly
-            project_root/data/processed/aqi_lagged_SEA.csv
-            project_root/data/trained_data
-            project_root/best_models
-            project_root/data/drift
-            project_root/data/drift/reports
+          name: raw-data
+          path: project_root/data/raw/waqi_timeseries/**
 
   model-training:
     runs-on: ubuntu-latest
@@ -78,32 +70,58 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Download data artifact
-        uses: actions/download-artifact@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          name: processed-data
-          path: project_root/data
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Download data artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: raw-data
+
       - name: Check model performance (decide whether to train)
         id: check
         run: |
+          # run the helper which prints a line `SHOULD_TRAIN=true` or `SHOULD_TRAIN=false`
           python project_root/check_model_performance.py || true
-          # detect SHOULD_TRAIN= line
+
+          # read last matching line and set output (works on ubuntu runner)
           val=$(grep "^SHOULD_TRAIN=" -m1 -n project_root/check_model_performance_output.txt || true)
           if [ -z "$val" ]; then
+            # fallback: try to extract from stdout file if script printed there
             val=$(python project_root/check_model_performance.py | grep "^SHOULD_TRAIN=" | tail -n1 || true)
           else
             val=$(tail -n1 project_root/check_model_performance_output.txt)
           fi
           if [ -z "$val" ]; then
-            echo "should_train=false" >> $GITHUB_OUTPUT
+            echo "::set-output name=should_train::false"
           else
+            # val is expected like SHOULD_TRAIN=true
             v=$(echo "$val" | sed -E 's/^SHOULD_TRAIN=//')
-            echo "should_train=$v" >> $GITHUB_OUTPUT
+            echo "::set-output name=should_train::$v"
           fi
+
       - name: Train (only if performance below threshold)
         if: steps.check.outputs.should_train == 'true'
         working-directory: project_root
-        run: python train.py
+        run: |
+          python train.py
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: trained-models
+          path: project_root/best_models/**
 
   model-prediction:
     runs-on: ubuntu-latest
@@ -113,53 +131,79 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Download data artifact
-        uses: actions/download-artifact@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          name: processed-data
-          path: project_root/data
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Download model artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: trained-models
+
       - name: Predict
         working-directory: project_root
-        run: python predict.py
-      - name: Upload generated artifacts for commit
-        uses: actions/upload-artifact@v4
+        run: |
+          python predict.py
+
+      - name: Upload prediction artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: pipeline-artifacts
-          path: |
-            project_root/data/raw/waqi_timeseries
-            project_root/data/clean/hourly
-            project_root/data/processed/aqi_lagged_SEA.csv
-            project_root/data/trained_data
-            project_root/best_models
-            project_root/data/drift
-            project_root/data/drift/reports
+          name: predictions
+          path: project_root/data/predictions/**
 
   commit-changes:
     runs-on: ubuntu-latest
     needs: model-prediction
     steps:
-      - name: Checkout (full history)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-      - name: Download pipeline artifacts
-        uses: actions/download-artifact@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          name: pipeline-artifacts
-          path: project_root/data
-      - name: Show downloaded files (debug)
-        run: ls -la project_root/data || true
-      - name: Persist generated artifacts (Commit and Push) 💾
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: raw-data
+
+      - name: Download model artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: trained-models
+
+      - name: Download prediction artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: predictions
+
+      - name: Commit all changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           file_pattern: |
             project_root/data/raw/waqi_timeseries/**
-            project_root/data/clean/hourly/**
-            project_root/data/processed/aqi_lagged_SEA.csv
-            project_root/data/trained_data/**
             project_root/best_models/**
-            project_root/data/drift/**
-            project_root/data/drift/reports/*.html
-          commit_message: '🤖 Data Pipeline: Update hourly data and Generate Drift Reports'
+            project_root/data/predictions/**
+          commit_message: '🤖 Hourly Pipeline: Commit all changes'
           branch: ${{ github.ref_name }}
