@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "data" / "processed" / "aqi_lagged_SEA.csv"
+DATA_DIR = BASE_DIR / "data" / "processed"   # เปลี่ยนจาก DATA_PATH เป็น DATA_DIR
 PRED_DIR = BASE_DIR / "data" / "predictions"
 PRED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -34,6 +34,32 @@ def get_latest_model_uri(model_name: str) -> str:
     print(f"✔ ใช้ model version ล่าสุด = {latest_version}")
 
     return f"models:/{model_name}/{latest_version}"
+
+
+def find_latest_dataset_path() -> Path:
+    """
+    เลือกไฟล์ training/feature dataset ล่าสุดจาก DATA_DIR
+    pattern: aqi_lagged_SEA_YYYYMMDD_HHMMSS.csv
+
+    ถ้าไม่เจอไฟล์แบบมี timestamp จะลองหาไฟล์เก่า aqi_lagged_SEA.csv เป็น fallback
+    """
+    pattern = "aqi_lagged_SEA_*.csv"
+    files = sorted(DATA_DIR.glob(pattern))
+
+    if files:
+        latest = files[-1]  # YYYYMMDD_HHMMSS ทำให้ sort ตามเวลาได้ตรงอยู่แล้ว
+        print(f"🔍 [PREDICT] พบไฟล์ dataset {len(files)} ไฟล์, ใช้ไฟล์ล่าสุด: {latest.name}")
+        return latest
+
+    legacy = DATA_DIR / "aqi_lagged_SEA.csv"
+    if legacy.exists():
+        print(f"⚠️ [PREDICT] ไม่พบไฟล์แบบมี timestamp ใช้ไฟล์ legacy แทน: {legacy.name}")
+        return legacy
+
+    raise FileNotFoundError(
+        f"ไม่พบไฟล์ dataset ใน {DATA_DIR} "
+        f"(ทั้ง pattern aqi_lagged_SEA_*.csv และ aqi_lagged_SEA.csv)"
+    )
 
 
 def load_latest_per_station(path: Path) -> pd.DataFrame:
@@ -77,7 +103,7 @@ def make_feature_matrix(df: pd.DataFrame):
 
 
 def main():
-    # 0) ดึง URI ของ model version ล่าสุด
+    # 0) ดึง URI ของ model version ล่าสุด (ถ้าไม่มี ให้เทรนก่อนด้วย train.py)
     try:
         model_uri = get_latest_model_uri(MODEL_NAME)
     except ValueError:
@@ -86,8 +112,9 @@ def main():
         # ลองดึงใหม่
         model_uri = get_latest_model_uri(MODEL_NAME)
 
-    # 1) โหลดข้อมูลล่าสุดของแต่ละสถานี
-    df_latest = load_latest_per_station(DATA_PATH)
+    # 1) หาไฟล์ dataset ล่าสุด แล้วโหลดข้อมูลล่าสุดของแต่ละสถานี
+    data_path = find_latest_dataset_path()
+    df_latest = load_latest_per_station(data_path)
 
     # 2) เตรียม feature matrix
     X = make_feature_matrix(df_latest)
