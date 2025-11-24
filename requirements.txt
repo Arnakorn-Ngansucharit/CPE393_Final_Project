@@ -7,6 +7,9 @@ requests>=2.28.0
 # Data drift / monitoring
 evidently>=0.3.0
 
-# Optional / environment-specific
+# DagsHub client for experiment tracking/metadata
+dagshub>=0.6.3
+
+# environment-specific
 # dotenv is used by fetch_waqi_station_details_sea.py to load WAQI_TOKEN
 python-dotenv>=0.21.0

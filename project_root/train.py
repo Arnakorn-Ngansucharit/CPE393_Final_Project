@@ -1,5 +1,8 @@
 import os
 from pathlib import Path
+from datetime import datetime
+from dotenv import load_dotenv # Import for loading .env file
+import joblib
 
 import mlflow
 import mlflow.sklearn
@@ -11,10 +14,34 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from mlflow.tracking import MlflowClient
 
+# ================= DAGSHUB / MLFLOW CONFIGURATION =================
+
+# 1. Load environment variables from .env file
+# This loads MLFLOW_TRACKING_URI, USERNAME, and PASSWORD from the .env file
+load_dotenv()
+
+# 2. Check and set MLflow Tracking URI using Environment Variables
+if os.environ.get("MLFLOW_TRACKING_URI") is not None:
+    # Set the URI before calling set_experiment()
+    mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+    print(f"✅ MLflow Tracking URI set to: {mlflow.get_tracking_uri()}")
+else:
+    print("⚠️ MLFLOW_TRACKING_URI not set in .env or Environment. Logging to local .mlruns.")
+
+# ================= END OF DAGSHUB CONFIGURATION =================
+
+
 # ================= CONFIG =================
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data" / "processed"   # เปลี่ยนจาก DATA_PATH เป็น DATA_DIR
+# Note: You need to ensure the data/processed directory exists and contains data
+DATA_DIR = BASE_DIR / "data" / "processed" 
+MODELS_DIR = BASE_DIR / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Define TRAINED_DATA_DIR for saving preprocessed datasets
+TRAINED_DATA_DIR = BASE_DIR / "data" / "trained_data"
+TRAINED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 TARGET_COL = "aqi_next1h"
 EXPERIMENT_NAME = "aqi_forecasting"
@@ -36,7 +63,7 @@ def find_latest_dataset_path() -> Path:
     files = sorted(DATA_DIR.glob(pattern))
 
     if files:
-        latest = files[-1]  # เพราะ YYYYMMDD_HHMMSS ทำให้ sort ตามเวลาพอดี
+        latest = files[-1] 
         print(f"🔍 พบไฟล์ training dataset {len(files)} ไฟล์, ใช้ไฟล์ล่าสุด: {latest.name}")
         return latest
 
@@ -129,8 +156,30 @@ def train_and_log_model(model_name: str, model, X_train, X_test, y_train, y_test
 
         print(f"[{model_name}] MAE={mae:.4f}  RMSE={rmse:.4f}  R2={r2:.4f}")
 
-        # log model
-        mlflow.sklearn.log_model(model, artifact_path="model")
+        # log model (preferred) - This logs the model to DagsHub Artifact Store
+        try:
+            mlflow.sklearn.log_model(model, artifact_path="model")
+            print("➡️ log model เข้า MLflow เรียบร้อย (Artifacts จะถูก 'Push' ไป DagsHub)")
+        except Exception as e:
+            print("⚠️  ไม่สามารถ log model เข้า MLflow ได้โดยตรง (อาจเป็นปัญหาการเชื่อมต่อ):", e)
+            
+            # fallback: save model locally and upload it as a run artifact
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            local_model_path = MODELS_DIR / f"{model_name}_{timestamp}.pkl"
+            
+            try:
+                joblib.dump(model, local_model_path)
+                print(f"➡️ บันทึกโมเดลลงไฟล์ local: {local_model_path}")
+                
+                # try to upload the saved file as a run artifact
+                try:
+                    # Logs the local file path into the run artifact, DagsHub handles the upload
+                    mlflow.log_artifact(str(local_model_path), artifact_path="model_fallback")
+                    print("➡️ อัปโหลดไฟล์โมเดลเป็น artifact ใน run ที่กำลังทำงาน")
+                except Exception as e3:
+                    print("⚠️  ไม่สามารถอัปโหลด artifact ไปยัง MLflow ได้:", e3)
+            except Exception as e2:
+                print("⚠️  ไม่สามารถบันทึกโมเดลลง local ได้:", e2)
 
         # คืน metrics ไว้เอาไปเลือก best model ต่อ
         run_id = mlflow.active_run().info.run_id
@@ -149,9 +198,19 @@ def main():
     print(f"ใช้ MLflow experiment: {EXPERIMENT_NAME}")
 
     # ---------- หาไฟล์ล่าสุด & โหลด & preprocess data ----------
-    data_path = find_latest_dataset_path()
+    try:
+        data_path = find_latest_dataset_path()
+    except FileNotFoundError as e:
+        print(f"❌ Error: {e}")
+        return 
+
     df = load_dataset(data_path)
     X, y = preprocess(df)
+
+    # Save the preprocessed dataset
+    preprocessed_data_path = TRAINED_DATA_DIR / f"preprocessed_dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    df.to_csv(preprocessed_data_path, index=False)
+    print(f"➡️ Preprocessed dataset saved to: {preprocessed_data_path}")
 
     if len(X) < 50:
         print("⚠ จำนวน sample น้อย (< 50) ระวังโมเดล overfit เทรนให้สำหรับลอง pipeline ก่อน")
@@ -199,16 +258,32 @@ def main():
 
     # ---------- Auto-register best model เข้า Model Registry ----------
     model_name = "aqi_best_model"
-    model_uri = f"runs:/{best['run_id']}/model"
+    # Ensure the model is logged as 'model' artifact path for this URI to work, 
+    # or use 'model_fallback' if only the fallback succeeded.
+    model_uri = f"runs:/{best['run_id']}/model" 
 
     print(f"\nRegister best model เข้า Model Registry ชื่อ '{model_name}' ...")
-    registered = mlflow.register_model(model_uri=model_uri, name=model_name)
-    version = registered.version
-    print(f"   -> registered version = {version}")
+    try:
+        registered = mlflow.register_model(model_uri=model_uri, name=model_name)
+        version = registered.version
+        print(f"   -> registered version = {version}")
+        print("\nเสร็จแล้ว: best model ถูก register เรียบร้อย")
+        print(f"   Model URI สำหรับใช้ deploy: models:/{model_name}/{version}")
+        print("   ดูผลใน DagsHub: ไปที่หน้า Experiments และ Model Registry")
+    except Exception as e:
+        print(f"❌ Error registering model: {e}")
+        print("   ตรวจสอบว่า Tracking Server (DagsHub) ถูกตั้งค่าและมีการรับรองสิทธิ์ (Auth) ที่ถูกต้อง")
 
-    print("\nเสร็จแล้ว: best model ถูก register เรียบร้อย")
-    print(f"   Model URI สำหรับใช้ deploy: models:/{model_name}/{version}")
-    print("   ถ้าอยากดูใน UI ให้รัน: mlflow ui")
+    # ---------- Create a local folder called 'best_models' instead of pushing to DagsHub ----------
+    BEST_MODELS_DIR = BASE_DIR / "best_models"
+    BEST_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"➡️ Created local folder for best models: {BEST_MODELS_DIR}")
+
+    # Update the logic to save the best model with its name and timestamp
+    # Define the path for the best model artifact using the model name and timestamp
+    best_model_artifact_path = BEST_MODELS_DIR / f"{best['model_name']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
+    joblib.dump(model, best_model_artifact_path)
+    print(f"➡️ Best model artifact saved locally: {best_model_artifact_path}")
 
 
 if __name__ == "__main__":

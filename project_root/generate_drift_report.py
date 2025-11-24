@@ -45,20 +45,20 @@ def load_reference_data() -> pd.DataFrame:
 
 def load_current_data() -> pd.DataFrame:
     """
-    โหลด current/production data จากไฟล์ daily ล่าสุด
+    โหลด current/production data จากไฟล์ hourly ล่าสุด
     """
-    daily_dir = BASE_DIR / "data" / "clean" / "daily"
-    if not daily_dir.exists():
-        raise FileNotFoundError(f"ไม่พบโฟลเดอร์ {daily_dir}")
+    hourly_dir = BASE_DIR / "data" / "clean" / "hourly"
+    if not hourly_dir.exists():
+        raise FileNotFoundError(f"ไม่พบโฟลเดอร์ {hourly_dir}")
 
-    files = sorted(daily_dir.glob("waqi_daily_SEA_*.csv"), reverse=True)
+    files = sorted(hourly_dir.glob("waqi_hourly_SEA_*.csv"), reverse=True)
     if not files:
-        raise FileNotFoundError(f"ไม่พบไฟล์ daily data ใน {daily_dir}")
+        raise FileNotFoundError(f"ไม่พบไฟล์ hourly data ใน {hourly_dir}")
 
     latest_file = files[0]
-    print(f"[DRIFT] โหลดไฟล์ daily ล่าสุด: {latest_file.name}")
+    print(f"[DRIFT] โหลดไฟล์ hourly ล่าสุด: {latest_file.name}")
     df_current = pd.read_csv(latest_file)
-    
+
     # แปลง date column ถ้ามี
     if "date" in df_current.columns:
         df_current["date"] = pd.to_datetime(df_current["date"], errors="coerce")

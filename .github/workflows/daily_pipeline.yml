@@ -31,22 +31,10 @@ jobs:
         run: |
           python build_daily_for_drift.py
 
-      - name: Build drift reference (from trained data)
-        working-directory: project_root
-        run: |
-          python build_drift_file.py
-
-      - name: Generate drift report
-        working-directory: project_root
-        run: |
-          python generate_drift_report.py
-
       - name: Persist generated artifacts (Commit and Push) 💾
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           file_pattern: |
             project_root/data/clean/daily/**
-            project_root/data/drift/waqi_drift_reference.csv
-            project_root/data/drift/reports/*.html
-          commit_message: '🤖 Daily Drift: Update daily files, drift reference and reports'
+          commit_message: '🤖 Update daily files'
           branch: ${{ github.ref_name }}

@@ -45,6 +45,16 @@ jobs:
         run: |
           python build_training_dataset.py
 
+      - name: Build drift reference (from trained data)
+        working-directory: project_root
+        run: |
+          python build_drift_file.py
+
+      - name: Generate drift report
+        working-directory: project_root
+        run: |
+          python generate_drift_report.py
+
       - name: Predict
         working-directory: project_root
         run: |
@@ -86,5 +96,8 @@ jobs:
             project_root/data/clean/hourly/**
             project_root/data/processed/aqi_lagged_SEA.csv
             project_root/data/trained_data/**
-          commit_message: '🤖 Data Pipeline: Update hourly data'
+            project_root/best_models/**
+            project_root/data/drift/waqi_drift_reference.csv
+            project_root/data/drift/reports/*.html
+          commit_message: '🤖 Data Pipeline: Update hourly data and Generate Drift Reports'
           branch: ${{ github.ref_name }}
