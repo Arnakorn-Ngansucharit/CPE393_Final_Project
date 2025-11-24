@@ -7,6 +7,7 @@ import mlflow
 from mlflow.tracking import MlflowClient
 import numpy as np
 import pandas as pd
+import joblib
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data" / "processed"   # เปลี่ยนจาก DATA_PATH เป็น DATA_DIR
@@ -102,15 +103,27 @@ def make_feature_matrix(df: pd.DataFrame):
     return X
 
 
+def get_latest_model_path() -> Path:
+    """Find the latest model file in the best_models directory."""
+    model_files = sorted((BASE_DIR / "best_models").glob("*.pkl"))
+
+    if not model_files:
+        raise FileNotFoundError("No model files found in the best_models directory.")
+
+    latest_model = model_files[-1]  # The most recent model based on naming convention
+    print(f"✔ Using the latest model: {latest_model.name}")
+    return latest_model
+
+
 def main():
-    # 0) ดึง URI ของ model version ล่าสุด (ถ้าไม่มี ให้เทรนก่อนด้วย train.py)
+    # 0) หาไฟล์โมเดลล่าสุด (ถ้าไม่มี ให้เทรนก่อนด้วย train.py)
     try:
-        model_uri = get_latest_model_uri(MODEL_NAME)
-    except ValueError:
-        print(f"⚠ ไม่พบโมเดล '{MODEL_NAME}' -> กำลังรัน train.py เพื่อสร้างโมเดลแรก...")
+        model_path = get_latest_model_path()
+    except FileNotFoundError:
+        print("⚠ No models found in 'best_models' -> Running train.py to create the first model...")
         subprocess.run([sys.executable, str(BASE_DIR / "train.py")], check=True)
-        # ลองดึงใหม่
-        model_uri = get_latest_model_uri(MODEL_NAME)
+        # ลองดึงโมเดลอีกครั้ง
+        model_path = get_latest_model_path()
 
     # 1) หาไฟล์ dataset ล่าสุด แล้วโหลดข้อมูลล่าสุดของแต่ละสถานี
     data_path = find_latest_dataset_path()
@@ -119,9 +132,9 @@ def main():
     # 2) เตรียม feature matrix
     X = make_feature_matrix(df_latest)
 
-    # 3) โหลดโมเดลจาก MLflow
-    print(f"โหลดโมเดลจาก MLflow URI = {model_uri}")
-    model = mlflow.pyfunc.load_model(model_uri)
+    # 3) โหลดโมเดลจาก best_models directory
+    print(f"Loading model from: {model_path}")
+    model = joblib.load(model_path)
 
     # 4) predict
     preds = model.predict(X)
