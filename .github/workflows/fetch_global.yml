@@ -31,7 +31,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: waqi-global-snapshot
-          path: project_root/data/raw/waqi_global_snapshot/**
+          path: project_root/data/raw/waqi_global/**
+          retention-days: 7
 
   commit-changes:
     runs-on: ubuntu-latest
@@ -49,6 +50,6 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           file_pattern: |
-            project_root/data/raw/waqi_global_snapshot/**
+            project_root/data/raw/waqi_global/**
           commit_message: '🤖 Fetch WAQI Global Snapshot: Commit data changes'
           branch: ${{ github.ref_name }}
