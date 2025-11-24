@@ -1,5 +1,3 @@
-# build_training_dataset.py
-
 from pathlib import Path
 import pandas as pd
 from datetime import datetime
@@ -10,21 +8,18 @@ HOURLY_DIR = BASE_DIR / "data" / "clean" / "hourly"
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-# เดิมใช้ชื่อ fix; ตอนนี้เราจะสร้างชื่อไฟล์ตาม timestamp ใน main()
-# OUTPUT_CSV = PROCESSED_DIR / "aqi_lagged_SEA.csv"
-
 
 def load_all_daily() -> pd.DataFrame:
     """
     โหลดไฟล์ hourly ที่คลีนแล้วทั้งหมดจาก HOURLY_DIR
-    แล้ว concat รวมเป็น DataFrame เดียว
-    พร้อมลบ row ซ้ำ
+    (รองรับโฟลเดอร์รายวัน: data/clean/hourly/YYYYMMDD/waqi_cleaned_*.csv)
+    แล้ว concat รวมเป็น DataFrame เดียว พร้อมลบ row ซ้ำ
     """
-    files = sorted(HOURLY_DIR.glob("waqi_cleaned_*.csv"))
+    # ใช้ rglob เพื่อไล่หาใน subfolder ทุกวัน
+    files = sorted(HOURLY_DIR.rglob("waqi_cleaned_*.csv"))
     if not files:
         raise FileNotFoundError(f"ไม่พบ hourly files ใน {HOURLY_DIR}")
 
-    # ข้อ 2: บอกว่ารวมทั้งหมดกี่ไฟล์
     print(f"[TRAIN-DATA] พบไฟล์ hourly ที่จะใช้สร้าง training dataset ทั้งหมด {len(files)} ไฟล์")
     for f in files:
         try:
@@ -41,7 +36,7 @@ def load_all_daily() -> pd.DataFrame:
 
     df_all = pd.concat(dfs, ignore_index=True)
 
-    # ข้อ 3: ลบ row ซ้ำ
+    # ลบ row ซ้ำ
     before = len(df_all)
     subset = [c for c in ["station_idx", "station_time"] if c in df_all.columns]
     if subset:
@@ -104,7 +99,6 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df = create_lags(df)
 
-    # ลบแถวที่ target หรือ lag สำคัญเป็น NaN
     must_have = [c for c in ["aqi_next1h", "aqi_lag1"] if c in df.columns]
     df = df.dropna(subset=must_have)
 
@@ -116,7 +110,6 @@ def main():
     df_all = load_all_daily()
     df_lagged = add_lag_features(df_all)
 
-    # ข้อ 1: เซฟไฟล์ training dataset ตาม timestamp ตอนสร้าง
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_csv = PROCESSED_DIR / f"aqi_lagged_SEA_{ts}.csv"
 
