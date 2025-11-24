@@ -38,7 +38,7 @@ jobs:
       - name: Clean hourly timeseries
         working-directory: project_root
         run: |
-          python clean_hourly_timeseries.py
+          python process_data.py
 
       - name: Build training dataset
         working-directory: project_root
@@ -54,11 +54,6 @@ jobs:
         working-directory: project_root
         run: |
           python generate_drift_report.py
-
-      - name: Predict
-        working-directory: project_root
-        run: |
-          python predict.py
 
       - name: Check model performance (decide whether to train)
         id: check
@@ -87,6 +82,11 @@ jobs:
         working-directory: project_root
         run: |
           python train.py
+
+      - name: Predict
+        working-directory: project_root
+        run: |
+          python predict.py
 
       - name: Persist generated artifacts (Commit and Push) 💾
         uses: stefanzweifel/git-auto-commit-action@v5
