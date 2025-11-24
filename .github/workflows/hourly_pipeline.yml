@@ -174,6 +174,15 @@ jobs:
         with:
           name: predictions
 
+      - name: List files after artifact download
+        run: |
+          echo "Listing files in project_root/data/raw/waqi_timeseries/"
+          ls -R project_root/data/raw/waqi_timeseries/
+          echo "Listing files in project_root/best_models/"
+          ls -R project_root/best_models/
+          echo "Listing files in project_root/data/predictions/"
+          ls -R project_root/data/predictions/
+
       - name: Commit all changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
@@ -181,5 +190,6 @@ jobs:
             project_root/data/raw/waqi_timeseries/**
             project_root/best_models/**
             project_root/data/predictions/**
+            project_root/data/trained_data/**
           commit_message: '🤖 Hourly Pipeline: Commit all changes'
           branch: ${{ github.ref_name }}
