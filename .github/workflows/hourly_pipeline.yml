@@ -7,28 +7,37 @@ on:
     - cron: '0 * * * *'
 
 jobs:
-  pipeline:
+  setup-python:
     runs-on: ubuntu-latest
-    env:
-      WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
-    permissions:
-      contents: write 
-      
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }} 
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Upgrade pip
         run: |
           python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
           pip install -r requirements.txt
+
+  data-processing:
+    runs-on: ubuntu-latest
+    needs: setup-python
+    env:
+      WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch WAQI station details (hourly)
         working-directory: project_root
@@ -55,16 +64,22 @@ jobs:
         run: |
           python generate_drift_report.py
 
+  model-training:
+    runs-on: ubuntu-latest
+    needs: data-processing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Check model performance (decide whether to train)
         id: check
         run: |
-          # run the helper which prints a line `SHOULD_TRAIN=true` or `SHOULD_TRAIN=false`
           python project_root/check_model_performance.py || true
 
-          # read last matching line and set output (works on ubuntu runner)
           val=$(grep "^SHOULD_TRAIN=" -m1 -n project_root/check_model_performance_output.txt || true)
           if [ -z "$val" ]; then
-            # fallback: try to extract from stdout file if script printed there
             val=$(python project_root/check_model_performance.py | grep "^SHOULD_TRAIN=" | tail -n1 || true)
           else
             val=$(tail -n1 project_root/check_model_performance_output.txt)
@@ -72,7 +87,6 @@ jobs:
           if [ -z "$val" ]; then
             echo "::set-output name=should_train::false"
           else
-            # val is expected like SHOULD_TRAIN=true
             v=$(echo "$val" | sed -E 's/^SHOULD_TRAIN=//')
             echo "::set-output name=should_train::$v"
           fi
@@ -83,10 +97,28 @@ jobs:
         run: |
           python train.py
 
+  model-prediction:
+    runs-on: ubuntu-latest
+    needs: model-training
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Predict
         working-directory: project_root
         run: |
           python predict.py
+
+  upload-artifact:
+    runs-on: ubuntu-latest
+    needs: model-prediction
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Persist generated artifacts (Commit and Push) 💾
         uses: stefanzweifel/git-auto-commit-action@v5
