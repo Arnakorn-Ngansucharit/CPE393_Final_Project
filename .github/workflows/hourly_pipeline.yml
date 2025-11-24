@@ -42,9 +42,59 @@ jobs:
           name: raw-data
           path: project_root/data/raw/waqi_timeseries/**
 
-  model-training:
+      - name: Upload drift artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-data
+          path: project_root/data/drift/**
+
+      - name: Upload clean data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-data
+          path: project_root/data/clean/**
+
+  drift-validation:
     runs-on: ubuntu-latest
     needs: data-processing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Build Drift Reference File
+        working-directory: project_root
+        run: |
+          python build_drift_file.py
+
+      - name: Generate drift reports
+        working-directory: project_root
+        run: |
+          python generate_drift_report.py
+
+      - name: Upload drift reports artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-reports
+          path: project_root/data/drift/reports/**
+
+  model-training:
+    runs-on: ubuntu-latest
+    needs: drift-validation
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,24 +118,33 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: raw-data
+          path: project_root/data/raw/waqi_timeseries
 
       - name: Check model performance (decide whether to train)
         id: check
         run: |
-          python project_root/check_model_performance.py || true
+          # The ::set-output syntax is deprecated. Use $GITHUB_OUTPUT instead.
 
-          val=$(grep "^SHOULD_TRAIN=" -m1 -n project_root/check_model_performance_output.txt || true)
+          python project_root/check_model_performance.py || true
+          
+          OUTPUT_FILE="project_root/check_model_performance_output.txt"
+          val=$(grep "^SHOULD_TRAIN=" -m1 -n $OUTPUT_FILE || true)
           if [ -z "$val" ]; then
+            # If not in file, try direct script output (less reliable)
             val=$(python project_root/check_model_performance.py | grep "^SHOULD_TRAIN=" | tail -n1 || true)
           else
-            val=$(tail -n1 project_root/check_model_performance_output.txt)
+            # Extract only the last line/relevant content
+            val=$(tail -n1 $OUTPUT_FILE)
           fi
+
+          # Standardize the output extraction
           if [ -z "$val" ]; then
-            echo "::set-output name=should_train::false"
+            echo "should_train=false" >> $GITHUB_OUTPUT
           else
             v=$(echo "$val" | sed -E 's/^SHOULD_TRAIN=//')
-            echo "::set-output name=should_train::$v"
+            echo "should_train=$v" >> $GITHUB_OUTPUT
           fi
+
 
       - name: Train (only if performance below threshold)
         if: steps.check.outputs.should_train == 'true'
@@ -125,6 +184,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: trained-models
+          path: project_root/best_models 
 
       - name: Predict
         working-directory: project_root
@@ -139,6 +199,8 @@ jobs:
 
   commit-changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs: model-prediction
     steps:
       - name: Checkout
@@ -146,23 +208,29 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Upgrade pip
-        run: |
-          python -m pip install --upgrade pip
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
-      - name: Download all artifacts
+      - name: Download raw data artifact
         uses: actions/download-artifact@v4
         with:
           name: raw-data
+          path: project_root/data/raw/waqi_timeseries 
+
+      - name: Download drift artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: drift-data
+          path: project_root/data/drift 
+
+      - name: Download clean data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: clean-data
+          path: project_root/data/clean
+
+      - name: Download drift reports artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: drift-reports
+          path: project_root/data/drift/reports 
 
       - name: Download model artifact
         uses: actions/download-artifact@v4
@@ -173,15 +241,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: predictions
+          path: project_root/data/predictions
 
-      - name: List files after artifact download
-        run: |
-          echo "Listing files in project_root/data/raw/waqi_timeseries/"
-          ls -R project_root/data/raw/waqi_timeseries/
-          echo "Listing files in project_root/best_models/"
-          ls -R project_root/best_models/
-          echo "Listing files in project_root/data/predictions/"
-          ls -R project_root/data/predictions/
 
       - name: Commit all changes
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -189,7 +250,11 @@ jobs:
           file_pattern: |
             project_root/data/raw/waqi_timeseries/**
             project_root/best_models/**
+            project_root/data/clean/**
+            project_root/data/drift/**
+            project_root/data/drift/reports/**
             project_root/data/predictions/**
-            project_root/data/trained_data/**
+            # Assuming trained_data is generated somewhere
+            project_root/data/trained_data/** 
           commit_message: '🤖 Hourly Pipeline: Commit all changes'
           branch: ${{ github.ref_name }}
