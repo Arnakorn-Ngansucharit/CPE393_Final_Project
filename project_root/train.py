@@ -14,7 +14,7 @@ from mlflow.tracking import MlflowClient
 # ================= CONFIG =================
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "data" / "processed" / "aqi_lagged_SEA.csv"
+DATA_DIR = BASE_DIR / "data" / "processed"   # เปลี่ยนจาก DATA_PATH เป็น DATA_DIR
 
 TARGET_COL = "aqi_next1h"
 EXPERIMENT_NAME = "aqi_forecasting"
@@ -24,6 +24,33 @@ TEST_SIZE = 0.2
 
 
 # ================= DATA LOADING =================
+
+def find_latest_dataset_path() -> Path:
+    """
+    เลือกไฟล์ training dataset ล่าสุดจาก DATA_DIR
+    pattern: aqi_lagged_SEA_YYYYMMDD_HHMMSS.csv
+
+    ถ้าไม่เจอไฟล์แบบมี timestamp จะลองหาไฟล์เก่า aqi_lagged_SEA.csv เป็น fallback
+    """
+    pattern = "aqi_lagged_SEA_*.csv"
+    files = sorted(DATA_DIR.glob(pattern))
+
+    if files:
+        latest = files[-1]  # เพราะ YYYYMMDD_HHMMSS ทำให้ sort ตามเวลาพอดี
+        print(f"🔍 พบไฟล์ training dataset {len(files)} ไฟล์, ใช้ไฟล์ล่าสุด: {latest.name}")
+        return latest
+
+    # fallback: ใช้ชื่อเก่าแบบ fix
+    legacy = DATA_DIR / "aqi_lagged_SEA.csv"
+    if legacy.exists():
+        print(f"⚠️ ไม่พบไฟล์แบบมี timestamp ใช้ไฟล์ legacy แทน: {legacy.name}")
+        return legacy
+
+    raise FileNotFoundError(
+        f"ไม่พบไฟล์ training dataset ใน {DATA_DIR} "
+        f"(ทั้ง pattern aqi_lagged_SEA_*.csv และ aqi_lagged_SEA.csv)"
+    )
+
 
 def load_dataset(path: Path) -> pd.DataFrame:
     if not path.exists():
@@ -121,8 +148,9 @@ def main():
     mlflow.set_experiment(EXPERIMENT_NAME)
     print(f"ใช้ MLflow experiment: {EXPERIMENT_NAME}")
 
-    # ---------- โหลด & preprocess data ----------
-    df = load_dataset(DATA_PATH)
+    # ---------- หาไฟล์ล่าสุด & โหลด & preprocess data ----------
+    data_path = find_latest_dataset_path()
+    df = load_dataset(data_path)
     X, y = preprocess(df)
 
     if len(X) < 50:
@@ -181,6 +209,7 @@ def main():
     print("\nเสร็จแล้ว: best model ถูก register เรียบร้อย")
     print(f"   Model URI สำหรับใช้ deploy: models:/{model_name}/{version}")
     print("   ถ้าอยากดูใน UI ให้รัน: mlflow ui")
+
 
 if __name__ == "__main__":
     main()
