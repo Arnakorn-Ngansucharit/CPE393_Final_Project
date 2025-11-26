@@ -13,3 +13,9 @@ dagshub>=0.6.3
 # environment-specific
 # dotenv is used by fetch_waqi_station_details_sea.py to load WAQI_TOKEN
 python-dotenv>=0.21.0
+
+fastapi>=0.100.0
+uvicorn>=0.22.0
+joblib>=1.3.0
+pydantic>=1.10.0
+mangum>=0.12.0
