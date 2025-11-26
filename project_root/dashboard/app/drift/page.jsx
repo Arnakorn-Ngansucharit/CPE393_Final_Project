@@ -35,7 +35,7 @@ export default function DriftReportPage() {
       {/* --- Iframe Content --- */}
       <div className="flex-1 w-full bg-white relative">
         <iframe 
-          src="../../../data/drift/reports/drift_report_20251123_203921.html" 
+          src="/drift_report_20251123_203921.html" 
           title="Drift Report"
           className="w-full h-full border-none absolute inset-0"
         />

@@ -87,7 +87,7 @@ export default function DashboardPage() {
           onClick={() => openModal("Top 10 Stations / Bias", "/eda_output/station_bias.png")}
         >
           <div className="relative h-full w-full">
-            <Image src="../../../eda_output/station_bias.png" alt="Top Stations" fill className="object-contain" />
+            <Image src="/eda_output/station_bias.png" alt="Top Stations" fill className="object-contain" />
           </div>
         </DashboardCard>
 
@@ -98,7 +98,7 @@ export default function DashboardPage() {
           onClick={() => openModal("Correlation Matrix (Heatmap)", "/eda_output/corr_heatmap.png")}
         >
           <div className="relative h-full w-full rounded-lg overflow-hidden flex items-center justify-center">
-            <Image src="../../../eda_output/corr_heatmap.png" alt="Correlation Matrix" fill className="object-contain p-1" />
+            <Image src="/eda_output/corr_heatmap.png" alt="Correlation Matrix" fill className="object-contain p-1" />
           </div>
         </DashboardCard>
 
@@ -108,18 +108,18 @@ export default function DashboardPage() {
           onClick={() => openModal("Correlation: AQI vs PM2.5", "/eda_output/scatter_aqi_pm25.png")}
         >
           <div className="relative h-full w-full rounded-lg overflow-hidden">
-            <Image src="../../../eda_output/scatter_aqi_pm25.png" alt="Scatter Plot" fill className="object-contain" />
+            <Image src="/eda_output/scatter_aqi_pm25.png" alt="Scatter Plot" fill className="object-contain" />
           </div>
         </DashboardCard>
 
         {/* === ROW 3 (Mini Cards) === */}
         <div className="col-span-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <MiniDistCard title="PM10 Dist." src="../../../eda_output/dist_pm10.png" height={miniCardHeight} onClick={() => openModal("PM10 Distribution", "../../../eda_output/dist_pm10.png")} />
-          <MiniDistCard title="PM2.5 Dist." src="../../../eda_output/dist_pm25.png" height={miniCardHeight} onClick={() => openModal("PM2.5 Distribution", "../../../eda_output/dist_pm25.png")} />
-          <MiniDistCard title="AQI Dist." src="../../../eda_output/dist_aqi.png" height={miniCardHeight} onClick={() => openModal("AQI Distribution", "../../../eda_output/dist_aqi.png")} />
-          <MiniDistCard title="Temp (T) Dist." src="../../../eda_output/dist_t.png" height={miniCardHeight} onClick={() => openModal("Temperature Distribution", "../../../eda_output/dist_t.png")} />
-          <MiniDistCard title="Humidity (H) Dist." src="../../../eda_output/dist_h.png" height={miniCardHeight} onClick={() => openModal("Humidity Distribution", "../../../eda_output/dist_h.png")} />
-          <MiniDistCard title="Missing Values" src="../../../eda_output/missing_values.png" height={miniCardHeight} onClick={() => openModal("Missing Values", "../../../eda_output/missing_values.png")} />
+          <MiniDistCard title="PM10 Dist." src="/eda_output/dist_pm10.png" height={miniCardHeight} onClick={() => openModal("PM10 Distribution", "/eda_output/dist_pm10.png")} />
+          <MiniDistCard title="PM2.5 Dist." src="/eda_output/dist_pm25.png" height={miniCardHeight} onClick={() => openModal("PM2.5 Distribution", "/eda_output/dist_pm25.png")} />
+          <MiniDistCard title="AQI Dist." src="/eda_output/dist_aqi.png" height={miniCardHeight} onClick={() => openModal("AQI Distribution", "/eda_output/dist_aqi.png")} />
+          <MiniDistCard title="Temp (T) Dist." src="/eda_output/dist_t.png" height={miniCardHeight} onClick={() => openModal("Temperature Distribution", "/eda_output/dist_t.png")} />
+          <MiniDistCard title="Humidity (H) Dist." src="/eda_output/dist_h.png" height={miniCardHeight} onClick={() => openModal("Humidity Distribution", "/eda_output/dist_h.png")} />
+          <MiniDistCard title="Missing Values" src="/eda_output/missing_values.png" height={miniCardHeight} onClick={() => openModal("Missing Values", "/eda_output/missing_values.png")} />
         </div>
 
       </main>
