@@ -1,0 +1,4 @@
+.git/
+__pycache__/
+data/
+!best_models/*.pkl  # Include only .pkl files in the best_models directory
